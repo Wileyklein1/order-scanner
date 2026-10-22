@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Order Scanner</title>
+<meta name="description" content="Scan products and build an order from an Impact order form, offline.">
+<meta name="theme-color" content="#1f5a3f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Order Scanner">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="bar">
+  <button class="back" id="btnBack" hidden aria-label="Back">‹ Back</button>
+  <h1 id="title">Order Scanner</h1>
+  <span class="net" id="net"></span>
+</header>
+
+<!-- HOME -->
+<main id="vHome" class="view">
+  <section class="card">
+    <div class="row between"><h2>Orders</h2><button class="btn primary" id="btnNewOrder">+ New order</button></div>
+    <ul class="list" id="orderList"></ul>
+    <p class="muted" id="noOrders">No orders yet.</p>
+  </section>
+  <section class="card">
+    <div class="row between"><h2>Order forms</h2>
+      <label class="btn">Load form (.xlsx)<input type="file" id="fileForm" accept=".xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden></label>
+    </div>
+    <ul class="list" id="formList"></ul>
+    <p class="muted" id="noForms">Load an order form from Files (OneDrive) to start. It stays on this iPad, so it works with no signal.</p>
+  </section>
+  <p class="muted small" id="ver"></p>
+</main>
+
+<!-- NEW / EDIT ORDER HEADER -->
+<main id="vHeader" class="view" hidden>
+  <section class="card form">
+    <label>Order form<select id="hForm"></select></label>
+    <label>Account<input id="hAccount" autocomplete="off" placeholder="Store name"></label>
+    <div class="grid2">
+      <label>Account #<input id="hAcct" autocomplete="off"></label>
+      <label>PO #<input id="hPO" autocomplete="off"></label>
+    </div>
+    <label>Ship to<input id="hShip" autocomplete="off"></label>
+    <div class="grid2">
+      <label>Buyer / phone<input id="hBuyer" autocomplete="off"></label>
+      <label>Date<input id="hDate" type="date"></label>
+    </div>
+    <label>Notes<textarea id="hNotes" rows="2"></textarea></label>
+    <button class="btn primary big" id="btnStartScan">Start scanning</button>
+  </section>
+</main>
+
+<!-- SCAN -->
+<main id="vScan" class="view" hidden>
+  <div class="scanTop">
+    <div class="cam" id="camBox">
+      <video id="video" playsinline muted></video>
+      <div class="aim"></div>
+      <div class="camOff" id="camOff">
+        <button class="btn primary big" id="btnCam">📷 Start camera</button>
+        <p class="muted small">Bluetooth scanner works any time — just scan.</p>
+      </div>
+    </div>
+    <div class="scanSide">
+      <div class="row gap">
+        <input id="search" type="search" placeholder="Find item: name, item #, barcode" autocomplete="off">
+        <button class="btn" id="btnCamToggle" title="Camera on/off">📷</button>
+      </div>
+      <ul class="results" id="results" hidden></ul>
+      <div id="pending" class="pending" hidden>
+        <div class="pTop">
+          <div>
+            <div class="pDesc" id="pDesc"></div>
+            <div class="pMeta" id="pMeta"></div>
+          </div>
+          <button class="x" id="btnCancelPending" aria-label="Cancel">✕</button>
+        </div>
+        <div class="warn" id="pWarn" hidden></div>
+        <div class="already muted" id="pAlready"></div>
+        <div class="qtyRow">
+          <div class="qty" id="pQty">0</div>
+          <div class="chips" id="pChips"></div>
+        </div>
+        <div class="pad" id="pad"></div>
+        <button class="btn primary big" id="btnAdd">Add to order</button>
+      </div>
+      <div id="idle" class="idle">
+        <p><b>Scan a barcode</b> with the camera or a Bluetooth scanner, or search above.</p>
+      </div>
+    </div>
+  </div>
+  <footer class="scanFoot">
+    <div><b id="fLines">0 items</b> · <span id="fTotal">$0.00</span><div class="muted small" id="fLast"></div></div>
+    <button class="btn primary" id="btnReview">Review order ›</button>
+  </footer>
+</main>
+
+<!-- REVIEW -->
+<main id="vReview" class="view" hidden>
+  <section class="card">
+    <div class="row between wrap">
+      <div><h2 id="rTitle"></h2><div class="muted" id="rSub"></div></div>
+      <div class="row gap wrap">
+        <button class="btn" id="btnEditHeader">Edit details</button>
+        <button class="btn" id="btnBackToScan">Keep scanning</button>
+        <button class="btn primary" id="btnExport">Export order (.xlsx)</button>
+      </div>
+    </div>
+    <div class="warn" id="rWarn" hidden></div>
+    <table class="lines">
+      <thead><tr><th>Item</th><th class="num">Price</th><th class="num">Min</th><th class="num">Qty</th><th class="num">Total</th><th></th></tr></thead>
+      <tbody id="rBody"></tbody>
+      <tfoot><tr><td colspan="3"><b>Total</b></td><td class="num" id="rQty"></td><td class="num"><b id="rTotal"></b></td><td></td></tr></tfoot>
+    </table>
+  </section>
+</main>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="vendor/xlsx.full.min.js"></script>
+<script src="vendor/zxing-library.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
