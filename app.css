@@ -35,6 +35,11 @@ h2 { font-size: 19px; margin: 0; }
 .form label { display: block; font-size: 14px; color: var(--muted); margin-bottom: 12px; }
 .form input, .form select, .form textarea, #search { display: block; width: 100%; margin-top: 4px; font: inherit; color: var(--ink);
   padding: 11px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); }
+.note { margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: var(--accent); font-weight: 600; }
+.note.alert { background: var(--warn-bg); color: var(--warn-ink); }
+.pass { margin-top: 12px; padding: 12px; border: 2px solid var(--brand); border-radius: 12px; }
+.pass label { display: block; font-weight: 700; margin-bottom: 6px; }
+.pass input { flex: 1; font: inherit; color: var(--ink); padding: 11px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
 /* scan */

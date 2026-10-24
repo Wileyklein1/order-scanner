@@ -1,5 +1,5 @@
 /* Offline cache: the whole app shell is cached on first visit; bump VERSION to ship updates. */
-const VERSION = "os-v1.1.0";
+const VERSION = "os-v1.2.0";
 const SHELL = ["./", "index.html", "app.css", "app.js", "manifest.webmanifest", "icon.svg", "icon-180.png",
                "icon-192.png", "icon-512.png", "vendor/xlsx.full.min.js", "vendor/zxing-wasm-reader.iife.js",
                "vendor/zxing_reader.wasm"];
@@ -13,7 +13,9 @@ self.addEventListener("activate", (e) => {
 });
 // cache first (works with no signal), refresh the cache in the background when online
 self.addEventListener("fetch", (e) => {
-  if (e.request.method !== "GET" || new URL(e.request.url).origin !== location.origin) return;
+  const url = new URL(e.request.url);
+  // forms/ is always fetched live (the app checks for newer forms); everything else is cache-first
+  if (e.request.method !== "GET" || url.origin !== location.origin || url.pathname.includes("/forms/")) return;
   e.respondWith(caches.open(VERSION).then(async (c) => {
     const hit = await c.match(e.request, { ignoreSearch: true });
     const net = fetch(e.request).then((r) => { if (r.ok) c.put(e.request, r.clone()); return r; }).catch(() => hit);

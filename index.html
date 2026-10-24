@@ -30,8 +30,20 @@
     <p class="muted" id="noOrders">No orders yet.</p>
   </section>
   <section class="card">
-    <div class="row between"><h2>Order forms</h2>
-      <label class="btn">Load form (.xlsx)<input type="file" id="fileForm" accept=".xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden></label>
+    <div class="row between wrap"><h2>Order forms</h2>
+      <div class="row gap wrap">
+        <button class="btn primary" id="btnDownload">⬇ Download latest forms</button>
+        <label class="btn">Load from Files<input type="file" id="fileForm" accept=".xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden></label>
+      </div>
+    </div>
+    <div class="note" id="formsNote" hidden></div>
+    <div class="pass" id="passBox" hidden>
+      <label for="passIn">Forms passcode</label>
+      <div class="row gap">
+        <input id="passIn" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="e.g. Cedar-Otter-…">
+        <button class="btn primary" id="btnPassGo">Unlock</button>
+      </div>
+      <p class="muted small">You only enter this once on this iPad.</p>
     </div>
     <ul class="list" id="formList"></ul>
     <p class="muted" id="noForms">Load an order form from Files (OneDrive) to start. It stays on this iPad, so it works with no signal.</p>

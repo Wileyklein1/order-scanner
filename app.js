@@ -1,17 +1,17 @@
 /* Order Scanner — scan products into an order built from an Impact order-form .xlsx. Works offline. */
 "use strict";
-const APP_VERSION = "1.1.0";
+const APP_VERSION = "1.2.0";
 
 // ---------------- storage (IndexedDB) ----------------
 const DB = (() => {
   let dbp;
   const open = () => dbp || (dbp = new Promise((res, rej) => {
-    const r = indexedDB.open("order-scanner", 1);
+    const r = indexedDB.open("order-scanner", 2);
     r.onupgradeneeded = () => {
       const d = r.result;
-      d.createObjectStore("forms", { keyPath: "id" });
-      d.createObjectStore("orders", { keyPath: "id" });
-      d.createObjectStore("aliases", { keyPath: "code" });
+      for (const [name, keyPath] of [["forms", "id"], ["orders", "id"], ["aliases", "code"], ["settings", "k"]]) {
+        if (!d.objectStoreNames.contains(name)) d.createObjectStore(name, { keyPath });
+      }
     };
     r.onsuccess = () => res(r.result);
     r.onerror = () => rej(r.error);
@@ -173,6 +173,7 @@ function renderHome() {
   }).join("");
   $("noOrders").hidden = S.orders.length > 0;
   $("ver").textContent = `Version ${APP_VERSION}`;
+  checkForNewForms();
 }
 
 $("fileForm").onchange = async (e) => {
@@ -187,6 +188,87 @@ $("fileForm").onchange = async (e) => {
     toast(`Loaded ${form.name}: ${form.items.length} items (${withCode} with barcodes)`, 3500);
   } catch (err) { toast("Couldn't read that file: " + err.message, 5000); }
 };
+
+// ---------------- download forms from the site (encrypted with a passcode) ----------------
+const b64bytes = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+const getSetting = async (k) => (await DB.get("settings", k))?.v;
+const setSetting = (k, v) => DB.put("settings", { k, v });
+
+async function fetchManifest() {
+  const r = await fetch("forms/manifest.json?t=" + Date.now(), { cache: "no-store" });
+  if (!r.ok) throw new Error("couldn't reach the forms list");
+  return r.json();
+}
+
+/** AES key for this manifest's salt: the saved one, or derived from a typed passcode (checked before use). */
+async function formsKey(m, passcode) {
+  const saved = await getSetting("formsKey");
+  if (!passcode && saved && saved.salt === m.kdf.salt) {
+    return crypto.subtle.importKey("raw", saved.raw, "AES-GCM", false, ["decrypt"]);
+  }
+  if (!passcode) return null;
+  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(passcode.trim()), "PBKDF2", false, ["deriveKey"]);
+  const key = await crypto.subtle.deriveKey(
+    { name: "PBKDF2", hash: m.kdf.hash, salt: b64bytes(m.kdf.salt), iterations: m.kdf.iterations },
+    base, { name: "AES-GCM", length: 256 }, true, ["decrypt"]);
+  try {
+    await crypto.subtle.decrypt({ name: "AES-GCM", iv: b64bytes(m.check.iv) }, key, b64bytes(m.check.ct));
+  } catch (_) { throw new Error("That passcode isn't right."); }
+  await setSetting("formsKey", { salt: m.kdf.salt, raw: await crypto.subtle.exportKey("raw", key) });
+  return key;
+}
+
+async function downloadForms(passcode) {
+  if (!navigator.onLine) return toast("Downloading forms needs Wi-Fi or signal.");
+  const btn = $("btnDownload");
+  btn.disabled = true; btn.textContent = "Downloading…";
+  try {
+    const m = await fetchManifest();
+    const key = await formsKey(m, passcode);
+    if (!key) {               // first time on this iPad (or the passcode was changed)
+      $("passBox").hidden = false; $("passIn").focus();
+      return;
+    }
+    $("passBox").hidden = true;
+    const names = [];
+    for (const f of m.forms) {
+      const ct = await fetch(f.file + "?t=" + Date.now(), { cache: "no-store" }).then((r) => {
+        if (!r.ok) throw new Error(`couldn't download ${f.name}`);
+        return r.arrayBuffer();
+      });
+      const data = await crypto.subtle.decrypt({ name: "AES-GCM", iv: b64bytes(f.iv) }, key, ct);
+      const form = parseForm(data, f.name + ".xlsx");
+      form.source = "download"; form.published = m.updated;
+      await DB.put("forms", form);
+      names.push(`${f.name} (${form.items.length} items)`);
+    }
+    await setSetting("formsUpdated", m.updated);
+    await loadAll(); renderHome();
+    toast("Downloaded: " + names.join(", "), 4500);
+  } catch (err) {
+    if (/passcode/.test(err.message)) { $("passBox").hidden = false; $("passIn").select(); }
+    toast(err.message || "Download failed.", 4500);
+  } finally {
+    btn.disabled = false; btn.textContent = "⬇ Download latest forms";
+  }
+}
+$("btnDownload").onclick = () => downloadForms();
+$("btnPassGo").onclick = () => { const p = $("passIn").value; if (p.trim()) downloadForms(p); };
+$("passIn").onkeydown = (e) => { if (e.key === "Enter") $("btnPassGo").click(); };
+
+/** On the home screen, quietly check whether newer forms have been posted. */
+async function checkForNewForms() {
+  const note = $("formsNote");
+  if (!navigator.onLine) { note.hidden = true; return; }
+  try {
+    const m = await fetchManifest();
+    const have = await getSetting("formsUpdated");
+    const d = new Date(m.updated).toLocaleDateString();
+    if (!have) { note.hidden = false; note.className = "note"; note.textContent = `Order forms are available to download (posted ${d}).`; }
+    else if (have !== m.updated) { note.hidden = false; note.className = "note alert"; note.textContent = `Newer order forms were posted ${d} — tap Download latest forms.`; }
+    else note.hidden = true;
+  } catch (_) { note.hidden = true; }
+}
 
 document.addEventListener("click", async (e) => {
   const b = e.target.closest("button");
