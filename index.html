@@ -64,6 +64,10 @@
     <div class="cam" id="camBox">
       <video id="video" playsinline muted></video>
       <div class="aim"></div>
+      <div class="camTools" id="camTools" hidden>
+        <span class="camStat" id="camStat">starting…</span>
+        <span class="camBtns"><span id="camZoom"></span><button id="camTorch" hidden>🔦</button></span>
+      </div>
       <div class="camOff" id="camOff">
         <button class="btn primary big" id="btnCam">📷 Start camera</button>
         <p class="muted small">Bluetooth scanner works any time — just scan.</p>
@@ -126,7 +130,7 @@
 <div class="toast" id="toast" hidden></div>
 
 <script src="vendor/xlsx.full.min.js"></script>
-<script src="vendor/zxing-library.min.js"></script>
+<script src="vendor/zxing-wasm-reader.iife.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

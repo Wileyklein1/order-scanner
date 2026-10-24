@@ -1,6 +1,6 @@
 /* Order Scanner — scan products into an order built from an Impact order-form .xlsx. Works offline. */
 "use strict";
-const APP_VERSION = "1.0.1";
+const APP_VERSION = "1.1.0";
 
 // ---------------- storage (IndexedDB) ----------------
 const DB = (() => {
@@ -247,37 +247,153 @@ function beep(ok = true) {
   } catch (_) { /* no audio */ }
 }
 
+// ---- image clean-up passes for hard frames (bars are vertical, so work along rows) ----
+function toGray(id) {
+  const d = id.data, n = id.width * id.height, g = new Uint8ClampedArray(n);
+  for (let i = 0, j = 0; j < n; i += 4, j++) g[j] = (d[i] * 77 + d[i + 1] * 150 + d[i + 2] * 29) >> 8;
+  return g;
+}
+function grayToImageData(g, w, h) {
+  const o = new ImageData(w, h), d = o.data;
+  for (let j = 0, i = 0; j < g.length; j++, i += 4) { d[i] = d[i + 1] = d[i + 2] = g[j]; d[i + 3] = 255; }
+  return o;
+}
+/** Horizontal sliding-window mean of each row. */
+function rowMean(g, w, h, r) {
+  const o = new Float32Array(g.length), span = 2 * r + 1;
+  for (let y = 0, base = 0; y < h; y++, base += w) {
+    let acc = 0;
+    for (let x = -r; x <= r; x++) acc += g[base + (x < 0 ? 0 : x >= w ? w - 1 : x)];
+    for (let x = 0; x < w; x++) {
+      o[base + x] = acc / span;
+      const add = x + r + 1, sub = x - r;
+      acc += g[base + (add >= w ? w - 1 : add)] - g[base + (sub < 0 ? 0 : sub)];
+    }
+  }
+  return o;
+}
+/** Remove glare / uneven light: subtract the local average, then stretch contrast. */
+function flattenLight(id) {
+  const w = id.width, h = id.height, g = toGray(id), m = rowMean(g, w, h, 40), o = new Uint8ClampedArray(g.length);
+  for (let i = 0; i < g.length; i++) o[i] = 128 + (g[i] - m[i]) * 2.2;
+  return grayToImageData(o, w, h);
+}
+/** Sharpen slightly blurred bars (unsharp mask along rows). */
+function sharpenBars(id) {
+  const w = id.width, h = id.height, g = toGray(id), m = rowMean(g, w, h, 2), o = new Uint8ClampedArray(g.length);
+  for (let i = 0; i < g.length; i++) o[i] = g[i] + 2.2 * (g[i] - m[i]);
+  return grayToImageData(o, w, h);
+}
+
+// zxing-cpp compiled to WebAssembly: far faster than the JS port, so we can try ~10+ frames a second
+const READ_OPTS = { formats: ["UPCA", "UPCE", "EAN13", "EAN8", "Code128"], tryHarder: true, tryRotate: true,
+                    tryInvert: false, maxNumberOfSymbols: 1 };
+const PASSES = ["full", "aim", "aim-flatten", "aim-sharpen"];
+
 const Cam = {
-  reader: null, on: false, last: "", lastAt: 0,
+  on: false, stream: null, track: null, caps: {}, timer: null, step: 0, tries: 0, last: "", lastAt: 0, ready: null,
+  cv: null, cx: null, zoom: 1, torch: false,
+  init() {
+    return this.ready || (this.ready = ZXingWASM.prepareZXingModule({
+      overrides: { locateFile: (p, prefix) => (p.endsWith(".wasm") ? new URL("vendor/" + p, location.href).href : prefix + p) },
+      fireImmediately: true,
+    }));
+  },
   async start() {
     if (this.on) return;
     try {
-      const hints = new Map();
-      const F = ZXing.BarcodeFormat;
-      hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [F.UPC_A, F.UPC_E, F.EAN_13, F.EAN_8, F.CODE_128, F.CODE_39]);
-      hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-      this.reader = new ZXing.BrowserMultiFormatReader(hints, 250);
+      await this.init();
+      this.stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: {
+        facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } } });
+      const v = $("video");
+      v.srcObject = this.stream;
+      await v.play();
+      this.track = this.stream.getVideoTracks()[0];
+      this.caps = (this.track.getCapabilities && this.track.getCapabilities()) || {};
+      try { if ((this.caps.focusMode || []).includes("continuous")) await this.track.applyConstraints({ advanced: [{ focusMode: "continuous" }] }); } catch (_) {}
       this.on = true; $("camOff").hidden = true; beep(true);
-      await this.reader.decodeFromConstraints(
-        { video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } } },
-        $("video"),
-        (res) => {
-          if (!res) return;
-          const code = res.getText(), now = Date.now();
-          if (code === this.last && now - this.lastAt < 2500) return;   // same label still in view
-          this.last = code; this.lastAt = now;
-          $("camBox").classList.add("hit"); setTimeout(() => $("camBox").classList.remove("hit"), 400);
-          onCode(code, "camera");
-        });
+      // zoom in a little so she can hold items further back, where the camera can focus
+      if (this.caps.zoom) await this.setZoom(Math.min(2, this.caps.zoom.max));
+      this.renderTools();
+      this.statTimer = setInterval(() => this.renderStat(), 1000);
+      this.loop();
     } catch (err) {
-      this.on = false; $("camOff").hidden = false;
+      this.stop();
       toast("Camera unavailable: " + (err.message || err.name), 4500);
     }
   },
   stop() {
-    if (this.reader) { try { this.reader.reset(); } catch (_) {} }
-    this.reader = null; this.on = false; $("camOff").hidden = false;
+    clearTimeout(this.timer); clearInterval(this.statTimer);
+    if (this.stream) this.stream.getTracks().forEach((t) => t.stop());
+    this.stream = this.track = null; this.on = false;
+    $("video").srcObject = null; $("camOff").hidden = false; $("camTools").hidden = true;
   },
+  async setZoom(z) {
+    try { await this.track.applyConstraints({ advanced: [{ zoom: z }] }); this.zoom = z; } catch (_) {}
+    this.renderTools();
+  },
+  async toggleTorch() {
+    try { await this.track.applyConstraints({ advanced: [{ torch: !this.torch }] }); this.torch = !this.torch; } catch (_) {}
+    this.renderTools();
+  },
+  renderTools() {
+    const t = $("camTools");
+    t.hidden = !this.on;
+    if (!this.on) return;
+    const z = this.caps.zoom ? [1, 2, 3].filter((x) => x >= this.caps.zoom.min && x <= this.caps.zoom.max) : [];
+    $("camZoom").innerHTML = z.map((x) => `<button data-zoom="${x}" class="${x === this.zoom ? "on" : ""}">${x}×</button>`).join("");
+    $("camTorch").hidden = !this.caps.torch;
+    $("camTorch").classList.toggle("on", this.torch);
+  },
+  renderStat() {
+    const s = this.track && this.track.getSettings ? this.track.getSettings() : {};
+    $("camStat").textContent = `${this.tries} tries/sec · ${s.width || "?"}×${s.height || "?"}`;
+    this.tries = 0;
+  },
+  loop() {
+    if (!this.on) return;
+    const v = $("video");
+    const go = async () => {
+      if (v.readyState >= 2 && v.videoWidth) { try { await this.tick(v); } catch (_) {} }
+      if (this.on) this.timer = setTimeout(() => this.loop(), 30);
+    };
+    go();
+  },
+  /** One decode attempt; passes rotate so each frame gets a different chance. */
+  async tick(src) {
+    const code = await decodeFrame(src, PASSES[this.step++ % PASSES.length], this);
+    this.tries++;
+    if (code) this.found(code);
+  },
+  found(code) {
+    const now = Date.now();
+    if (code === this.last && now - this.lastAt < 2500) return;   // same label still in view
+    this.last = code; this.lastAt = now;
+    $("camBox").classList.add("hit"); setTimeout(() => $("camBox").classList.remove("hit"), 400);
+    onCode(code, "camera");
+  },
+};
+
+/** Grab one pass from a video/image and decode it. Returns the barcode text or "". */
+async function decodeFrame(src, pass, buf) {
+  const W = src.videoWidth || src.naturalWidth || src.width, H = src.videoHeight || src.naturalHeight || src.height;
+  let sx = 0, sy = 0, sw = W, sh = H;
+  if (pass !== "full") { sw = Math.round(W * 0.8); sh = Math.round(H * 0.5); sx = (W - sw) >> 1; sy = (H - sh) >> 1; }
+  if (!buf.cv) { buf.cv = document.createElement("canvas"); buf.cx = buf.cv.getContext("2d", { willReadFrequently: true }); }
+  if (buf.cv.width !== sw || buf.cv.height !== sh) { buf.cv.width = sw; buf.cv.height = sh; }
+  buf.cx.drawImage(src, sx, sy, sw, sh, 0, 0, sw, sh);
+  let id = buf.cx.getImageData(0, 0, sw, sh);
+  if (pass === "aim-flatten") id = flattenLight(id);
+  else if (pass === "aim-sharpen") id = sharpenBars(id);
+  const out = await ZXingWASM.readBarcodes(id, READ_OPTS);
+  const hit = out.find((o) => o.isValid && o.text);
+  return hit ? hit.text : "";
+}
+$("camTools").onclick = (e) => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  if (b.dataset.zoom) Cam.setZoom(+b.dataset.zoom);
+  if (b.id === "camTorch") Cam.toggleTorch();
 };
 $("btnCam").onclick = () => Cam.start();
 $("btnCamToggle").onclick = () => (Cam.on ? Cam.stop() : Cam.start());
@@ -538,4 +654,4 @@ addEventListener("online", netStatus); addEventListener("offline", netStatus);
 })();
 
 // test hooks (used by automated checks; harmless in normal use)
-window.__os = { parseForm, onCode, normCode, S, DB, loadAll, buildOrderWorkbook, show, commitPending, padKey };
+window.__os = { decodeFrame, PASSES, parseForm, onCode, normCode, S, DB, loadAll, buildOrderWorkbook, show, commitPending, padKey };

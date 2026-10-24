@@ -1,7 +1,8 @@
 /* Offline cache: the whole app shell is cached on first visit; bump VERSION to ship updates. */
-const VERSION = "os-v1.0.1";
+const VERSION = "os-v1.1.0";
 const SHELL = ["./", "index.html", "app.css", "app.js", "manifest.webmanifest", "icon.svg", "icon-180.png",
-               "icon-192.png", "icon-512.png", "vendor/xlsx.full.min.js", "vendor/zxing-library.min.js"];
+               "icon-192.png", "icon-512.png", "vendor/xlsx.full.min.js", "vendor/zxing-wasm-reader.iife.js",
+               "vendor/zxing_reader.wasm"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

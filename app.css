@@ -46,6 +46,11 @@ h2 { font-size: 19px; margin: 0; }
 .aim { position: absolute; left: 12%; right: 12%; top: 38%; bottom: 38%; border: 3px solid rgba(255,255,255,.85); border-radius: 10px;
   box-shadow: 0 0 0 9999px rgba(0,0,0,.25); pointer-events: none; }
 .cam.hit .aim { border-color: #5fe08f; }
+.camTools { position: absolute; left: 8px; right: 8px; bottom: 8px; display: flex; justify-content: space-between; align-items: center; gap: 8px; pointer-events: none; }
+.camStat { color: #fff; font-size: 12px; background: rgba(0,0,0,.45); padding: 3px 8px; border-radius: 8px; }
+.camBtns { display: flex; gap: 6px; pointer-events: auto; }
+.camBtns button { min-width: 44px; height: 36px; border-radius: 18px; border: 1px solid rgba(255,255,255,.6); background: rgba(0,0,0,.45); color: #fff; font: inherit; font-size: 14px; font-weight: 700; }
+.camBtns button.on { background: #fff; color: #000; }
 .camOff { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
   background: var(--card); padding: 24px; text-align: center; }
 .camOff .btn { max-width: 320px; }
